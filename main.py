@@ -127,60 +127,83 @@ class PassportPhotoApp(QMainWindow):
                 padding: 10px 20px;
                 border-radius: 7px;
                 border: 1px solid #CCC;
-                background: #FFFFFF;
-                color: #333;
+                background-color: #FFFFFF;
+                color: #222222;
             }
-            QPushButton:hover { background: #EAF3FB; border-color: #378ADD; color: #185FA5; }
-            QPushButton:pressed { background: #D0E8F8; }
+            QPushButton:hover {
+                background-color: #EAF3FB;
+                border-color: #378ADD;
+                color: #1a5276;
+            }
+            QPushButton:pressed { background-color: #D0E8F8; }
+            QPushButton:disabled { color: #888888; background-color: #F0F0F0; }
+
             QPushButton#primary {
-                background: #1a5276;
-                color: white;
+                background-color: #1a5276;
+                color: #FFFFFF;
                 border: none;
                 font-size: 15px;
                 font-weight: bold;
                 padding: 12px 28px;
             }
-            QPushButton#primary:hover { background: #21618C; }
-            QPushButton#primary:disabled { background: #AAA; }
+            QPushButton#primary:hover { background-color: #21618C; color: #FFFFFF; }
+            QPushButton#primary:disabled { background-color: #BDC3C7; color: #ECF0F1; }
+
             QPushButton#download {
-                background: #1E8449;
-                color: white;
+                background-color: #1E8449;
+                color: #FFFFFF;
                 border: none;
                 font-size: 14px;
                 font-weight: bold;
             }
-            QPushButton#download:hover { background: #27AE60; }
-            QPushButton#download:disabled { background: #AAA; }
+            QPushButton#download:hover { background-color: #27AE60; color: #FFFFFF; }
+            QPushButton#download:disabled { background-color: #BDC3C7; color: #ECF0F1; }
             QLabel { color: #333; font-size: 13px; }
             QLabel#title { font-size: 22px; font-weight: bold; color: #1a5276; }
             QLabel#subtitle { font-size: 13px; color: #666; }
             QLabel#spec { font-size: 12px; color: #555; background: #EAF3FB;
                           padding: 6px 10px; border-radius: 5px; }
-            QRadioButton { font-size: 13px; color: #333; spacing: 10px; padding: 5px; }
+            QRadioButton { font-size: 13px; color: #222222; spacing: 10px; padding: 5px; }
             QRadioButton::indicator {
                 width: 18px; height: 18px;
-                border: 2px solid #CCC;
+                border: 2px solid #AAA;
                 border-radius: 11px;
-                background: white;
+                background-color: white;
             }
             QRadioButton::indicator:checked {
-                background-color: #378ADD;
-                border: 4px solid white;
+                background-color: #1a5276;
+                border: 3px solid #EAF3FB;
+            }
+            QRadioButton:hover {
+                background-color: #F8F9FA;
+                border-radius: 4px;
             }
             QRadioButton:checked {
-                color: #185FA5;
+                color: #1a5276;
                 font-weight: bold;
+                background-color: #EAF3FB;
+                border-radius: 4px;
             }
-            QCheckBox { font-size: 13px; color: #333; spacing: 8px; }
+            QCheckBox { font-size: 13px; color: #222222; spacing: 8px; padding: 5px; }
             QCheckBox::indicator {
                 width: 18px; height: 18px;
-                border: 2px solid #CCC;
+                border: 2px solid #AAA;
                 border-radius: 4px;
-                background: white;
+                background-color: white;
             }
             QCheckBox::indicator:checked {
-                background-color: #378ADD;
-                border: 4px solid white;
+                background-color: #1a5276;
+                border: 3px solid #EAF3FB;
+            }
+            QCheckBox:hover {
+                background-color: #F8F9FA;
+                border-radius: 4px;
+            }
+            QCheckBox:checked {
+                color: #1a5276;
+                font-weight: bold;
+                background-color: #EAF3FB;
+                border-radius: 4px;
             }
             QSlider::groove:horizontal { height: 5px; background: #DDD; border-radius: 3px; }
             QSlider::handle:horizontal {
@@ -283,11 +306,14 @@ class PassportPhotoApp(QMainWindow):
 
         self.size_passport = QRadioButton("📐  35 × 45 mm  (Standard Passport)")
         self.size_passport.setChecked(True)
-        self.size_small = QRadioButton("📏  20 × 20 mm  (Small / Specialty)")
+        self.size_small = QRadioButton("📏  20 × 20 mm  (Small)")
+        self.size_20x30 = QRadioButton("📏  20 × 30 mm  (Specialty)")
         self.size_group.addButton(self.size_passport)
         self.size_group.addButton(self.size_small)
+        self.size_group.addButton(self.size_20x30)
         size_layout.addWidget(self.size_passport)
         size_layout.addWidget(self.size_small)
+        size_layout.addWidget(self.size_20x30)
         layout.addWidget(size_grp)
 
         # ── Background ────────────────────────────────────────────────────────
@@ -444,12 +470,16 @@ class PassportPhotoApp(QMainWindow):
         self.print_sheet_btn.setEnabled(False)
 
     def _gather_settings(self):
-        size_mode = "passport" if self.size_passport.isChecked() else "small"
-        if size_mode == "passport":
+        if self.size_passport.isChecked():
+            size_mode = "passport"
             w, h = 827, 1063
-        else:
-            # 20mm at 600dpi = 20/25.4 * 600 = 472.44 -> 472 px
+        elif self.size_small.isChecked():
+            size_mode = "small_20x20"
             w, h = 472, 472
+        else:
+            size_mode = "small_20x30"
+            # 20mm x 30mm at 600dpi
+            w, h = 472, 709
 
         return {
             "size_mode":  size_mode,
@@ -509,10 +539,20 @@ class PassportPhotoApp(QMainWindow):
                         Qt.TransformationMode.SmoothTransformation)
         )
         settings = self._gather_settings()
-        size_str = "35×45 mm" if settings["size_mode"] == "passport" else "20×20 mm"
+        if settings["size_mode"] == "passport":
+            size_str = "35×45 mm"
+            copies = 6
+        elif settings["size_mode"] == "small_20x20":
+            size_str = "20×20 mm"
+            copies = 9
+        else:
+            size_str = "20×30 mm"
+            copies = 9
+
         self.result_info.setText(
             f"{size_str}  ·  {image.width}×{image.height} px  ·  600 DPI"
         )
+        self.print_sheet_btn.setText(f"🖨   Save Print Sheet  ({copies} photos)")
         self.download_btn.setEnabled(True)
         self.print_sheet_btn.setEnabled(True)
 
@@ -539,7 +579,11 @@ class PassportPhotoApp(QMainWindow):
         )
         if not path:
             return
-        sheet = self.processor.make_print_sheet(self.result_image)
+
+        settings = self._gather_settings()
+        cols = 6 if settings["size_mode"] == "passport" else 9
+
+        sheet = self.processor.make_print_sheet(self.result_image, cols=cols)
         fmt = "JPEG" if path.lower().endswith(".jpg") else "PNG"
         sheet.convert("RGB").save(path, format=fmt, dpi=(600, 600), quality=95)
         QMessageBox.information(self, "Saved", f"Print sheet saved to:\n{path}")
