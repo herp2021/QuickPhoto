@@ -150,10 +150,8 @@ class PassportProcessor:
         try:
             from rembg import remove
             session = self._get_rembg_session()
-            result = remove(pil_img, session=session, alpha_matting=True,
-                            alpha_matting_foreground_threshold=240,
-                            alpha_matting_background_threshold=10,
-                            alpha_matting_erode_size=2)
+            # Disable alpha_matting to avoid blocky artifacts reported by user
+            result = remove(pil_img, session=session, alpha_matting=False)
             return result.convert("RGBA")
         except Exception as e:
             # Graceful fallback: rough green-screen-style removal not possible offline

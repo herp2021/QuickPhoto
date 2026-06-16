@@ -112,8 +112,8 @@ class PassportPhotoApp(QMainWindow):
                 color: #333;
                 border: 1px solid #DDD;
                 border-radius: 8px;
-                margin-top: 8px;
-                padding-top: 10px;
+                margin-top: 10px;
+                padding: 15px 10px 10px 10px;
                 background: #FFFFFF;
             }
             QGroupBox::title {
@@ -156,7 +156,7 @@ class PassportPhotoApp(QMainWindow):
             QLabel#subtitle { font-size: 13px; color: #666; }
             QLabel#spec { font-size: 12px; color: #555; background: #EAF3FB;
                           padding: 6px 10px; border-radius: 5px; }
-            QRadioButton { font-size: 13px; color: #333; spacing: 8px; }
+            QRadioButton { font-size: 13px; color: #333; spacing: 10px; padding: 5px; }
             QRadioButton::indicator {
                 width: 18px; height: 18px;
                 border: 2px solid #CCC;
@@ -231,7 +231,18 @@ class PassportPhotoApp(QMainWindow):
         # Main body: left panel + preview
         body = QHBoxLayout()
         body.setSpacing(16)
-        body.addLayout(self._build_left_panel(), 1)
+
+        # Left Panel with Scroll Area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+
+        container = QWidget()
+        container.setLayout(self._build_left_panel())
+        scroll.setWidget(container)
+
+        body.addWidget(scroll, 1)
         body.addLayout(self._build_preview_panel(), 2)
         root.addLayout(body, 1)
 
@@ -246,7 +257,7 @@ class PassportPhotoApp(QMainWindow):
 
     def _build_left_panel(self):
         layout = QVBoxLayout()
-        layout.setSpacing(12)
+        layout.setSpacing(18)
 
         # ── Upload ────────────────────────────────────────────────────────────
         upload_grp = QGroupBox("Step 1 — Load Photo")
@@ -318,20 +329,28 @@ class PassportPhotoApp(QMainWindow):
         en_layout.addWidget(self.auto_enhance)
 
         def make_slider(label, min_val, max_val, default):
-            row = QHBoxLayout()
+            row_widget = QWidget()
+            row = QGridLayout(row_widget)
+            row.setContentsMargins(0, 0, 0, 0)
+
             lbl = QLabel(label)
-            lbl.setFixedWidth(90)
+            lbl.setMinimumWidth(80)
+
             s = QSlider(Qt.Orientation.Horizontal)
             s.setRange(min_val, max_val)
             s.setValue(default)
+
             val_lbl = QLabel(str(default))
-            val_lbl.setFixedWidth(30)
+            val_lbl.setFixedWidth(35)
+            val_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             val_lbl.setStyleSheet("color: #1a5276; font-weight: bold;")
             s.valueChanged.connect(lambda v, l=val_lbl: l.setText(str(v)))
-            row.addWidget(lbl)
-            row.addWidget(s)
-            row.addWidget(val_lbl)
-            en_layout.addLayout(row)
+
+            row.addWidget(lbl, 0, 0)
+            row.addWidget(s, 0, 1)
+            row.addWidget(val_lbl, 0, 2)
+
+            en_layout.addWidget(row_widget)
             return s
 
         self.brightness_slider  = make_slider("Brightness",  70, 130, 105)
