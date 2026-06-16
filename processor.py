@@ -11,10 +11,6 @@ import os
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-# Indian Passport: 35×45 mm at 600 DPI
-PASSPORT_W = 827    # pixels
-PASSPORT_H = 1063   # pixels
-
 # Face should occupy 70–80% of height, centered horizontally
 FACE_HEIGHT_RATIO  = 0.73   # target face height as fraction of photo height
 FACE_TOP_MARGIN    = 0.08   # gap from top of photo to top of head
@@ -49,10 +45,10 @@ class PassportProcessor:
             cascade_path = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
             self.haar_cascade = cv2.CascadeClassifier(cascade_path)
 
-    def detect_and_center_face(self, pil_img: Image.Image):
+    def detect_and_center_face(self, pil_img: Image.Image, target_w: int, target_h: int):
         """
         Detects face bounding box, then returns a new image cropped and
-        padded so the face is properly positioned for a passport photo.
+        padded so the face is properly positioned for the target dimensions.
         Returns (image, face_found: bool).
         """
         rgb = np.array(pil_img.convert("RGB"))
@@ -87,8 +83,8 @@ class PassportProcessor:
         fx, fy, fw, fh = face_box
 
         # ── Compute target crop ───────────────────────────────────────────────
-        # Face height should be FACE_HEIGHT_RATIO of passport height
-        target_face_h = PASSPORT_H * FACE_HEIGHT_RATIO
+        # Face height should be FACE_HEIGHT_RATIO of photo height
+        target_face_h = target_h * FACE_HEIGHT_RATIO
         scale = target_face_h / fh if fh > 0 else 1.0
 
         # Scale image so face height matches target
@@ -103,18 +99,18 @@ class PassportProcessor:
         sfh = int(fh * scale)
 
         # Desired top of photo: FACE_TOP_MARGIN above the top of the face
-        top_margin_px = int(PASSPORT_H * FACE_TOP_MARGIN)
+        top_margin_px = int(target_h * FACE_TOP_MARGIN)
         crop_y = sfy - top_margin_px
 
         # Horizontal center
         face_cx = sfx + sfw // 2
-        crop_x = face_cx - PASSPORT_W // 2
+        crop_x = face_cx - target_w // 2
 
         # Pad if needed
         pad_left  = max(0, -crop_x)
         pad_top   = max(0, -crop_y)
-        pad_right  = max(0, crop_x + PASSPORT_W - new_w)
-        pad_bottom = max(0, crop_y + PASSPORT_H - new_h)
+        pad_right  = max(0, crop_x + target_w - new_w)
+        pad_bottom = max(0, crop_y + target_h - new_h)
 
         if any([pad_left, pad_top, pad_right, pad_bottom]):
             padded_w = new_w + pad_left + pad_right
@@ -131,13 +127,13 @@ class PassportProcessor:
         cropped = scaled.crop((
             crop_x,
             crop_y,
-            crop_x + PASSPORT_W,
-            crop_y + PASSPORT_H
+            crop_x + target_w,
+            crop_y + target_h
         ))
 
         # Ensure exact size
-        if cropped.size != (PASSPORT_W, PASSPORT_H):
-            cropped = cropped.resize((PASSPORT_W, PASSPORT_H), Image.LANCZOS)
+        if cropped.size != (target_w, target_h):
+            cropped = cropped.resize((target_w, target_h), Image.LANCZOS)
 
         return cropped, True
 
@@ -154,10 +150,8 @@ class PassportProcessor:
         try:
             from rembg import remove
             session = self._get_rembg_session()
-            result = remove(pil_img, session=session, alpha_matting=True,
-                            alpha_matting_foreground_threshold=240,
-                            alpha_matting_background_threshold=10,
-                            alpha_matting_erode_size=10)
+            # Disable alpha_matting to avoid blocky artifacts reported by user
+            result = remove(pil_img, session=session, alpha_matting=False)
             return result.convert("RGBA")
         except Exception as e:
             # Graceful fallback: rough green-screen-style removal not possible offline
@@ -179,11 +173,11 @@ class PassportProcessor:
 
     # ── Crop to Passport Size ─────────────────────────────────────────────────
 
-    def crop_to_passport(self, pil_img: Image.Image) -> Image.Image:
-        """Ensure image is exactly PASSPORT_W × PASSPORT_H."""
-        if pil_img.size == (PASSPORT_W, PASSPORT_H):
+    def crop_to_passport(self, pil_img: Image.Image, target_w: int, target_h: int) -> Image.Image:
+        """Ensure image is exactly target_w × target_h."""
+        if pil_img.size == (target_w, target_h):
             return pil_img
-        return pil_img.resize((PASSPORT_W, PASSPORT_H), Image.LANCZOS)
+        return pil_img.resize((target_w, target_h), Image.LANCZOS)
 
     # ── Quality Enhancement ───────────────────────────────────────────────────
 
@@ -240,26 +234,39 @@ class PassportProcessor:
 
     # ── Print Sheet ───────────────────────────────────────────────────────────
 
-    def make_print_sheet(self, photo: Image.Image, cols=3, rows=2) -> Image.Image:
+    def make_print_sheet(self, photo: Image.Image, cols=6, rows=1) -> Image.Image:
         """
-        Create an A4 print sheet at 600 DPI with 6 passport photos
-        arranged in a 3×2 grid with margins.
+        Create an A4 print sheet at 600 DPI with 6 photos arranged in a single row at the top.
         A4 at 600 DPI = 4961 × 7016 px
         """
         A4_W = 4961
         A4_H = 7016
-        MARGIN = 200   # ~8.5 mm margin
+        TOP_MARGIN = 300   # Gap from top of page
+        GAP_PX = 50        # ~2 mm gap between photos
 
-        sheet = Image.new("RGB", (A4_W, A4_H), (255, 255, 255))
+        pw, ph = photo.size
         photo_rgb = photo.convert("RGB")
 
-        gap_x = (A4_W - 2 * MARGIN - cols * PASSPORT_W) // (cols - 1) if cols > 1 else 0
-        gap_y = (A4_H - 2 * MARGIN - rows * PASSPORT_H) // (rows - 1) if rows > 1 else 0
+        # Ensure 6 photos fit horizontally by scaling down if necessary
+        # Max width available for 6 photos + 5 gaps
+        max_total_w = A4_W - 400 # 200px margin on each side
+        needed_w = (cols * pw) + ((cols - 1) * GAP_PX)
 
-        for row in range(rows):
-            for col in range(cols):
-                x = MARGIN + col * (PASSPORT_W + gap_x)
-                y = MARGIN + row * (PASSPORT_H + gap_y)
-                sheet.paste(photo_rgb, (x, y))
+        if needed_w > max_total_w:
+            scale = max_total_w / needed_w
+            pw = int(pw * scale)
+            ph = int(ph * scale)
+            photo_rgb = photo_rgb.resize((pw, ph), Image.LANCZOS)
+            needed_w = (cols * pw) + ((cols - 1) * GAP_PX)
+
+        sheet = Image.new("RGB", (A4_W, A4_H), (255, 255, 255))
+
+        # Center the row of photos
+        start_x = (A4_W - needed_w) // 2
+
+        for col in range(cols):
+            x = start_x + col * (pw + GAP_PX)
+            y = TOP_MARGIN
+            sheet.paste(photo_rgb, (x, y))
 
         return sheet
