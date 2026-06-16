@@ -53,7 +53,9 @@ class WorkerThread(QThread):
             img = Image.open(self.image_path).convert("RGBA")
 
             self.progress.emit(25, "Detecting face…")
-            img, face_found = self.processor.detect_and_center_face(img)
+            img, face_found = self.processor.detect_and_center_face(
+                img, self.settings["target_w"], self.settings["target_h"]
+            )
             if not face_found:
                 self.finished.emit(None, "No face detected. Please use a photo with a clearly visible face.")
                 return
@@ -64,8 +66,8 @@ class WorkerThread(QThread):
             self.progress.emit(60, "Applying background colour…")
             img = self.processor.apply_background(img, self.settings["bg_color"])
 
-            self.progress.emit(72, "Cropping to passport dimensions…")
-            img = self.processor.crop_to_passport(img)
+            self.progress.emit(72, "Cropping to dimensions…")
+            img = self.processor.crop_to_passport(img, self.settings["target_w"], self.settings["target_h"])
 
             self.progress.emit(82, "Enhancing photo quality…")
             img = self.processor.enhance_quality(img, self.settings)
@@ -110,8 +112,8 @@ class PassportPhotoApp(QMainWindow):
                 color: #333;
                 border: 1px solid #DDD;
                 border-radius: 8px;
-                margin-top: 8px;
-                padding-top: 10px;
+                margin-top: 10px;
+                padding: 15px 10px 10px 10px;
                 background: #FFFFFF;
             }
             QGroupBox::title {
@@ -154,10 +156,32 @@ class PassportPhotoApp(QMainWindow):
             QLabel#subtitle { font-size: 13px; color: #666; }
             QLabel#spec { font-size: 12px; color: #555; background: #EAF3FB;
                           padding: 6px 10px; border-radius: 5px; }
-            QRadioButton { font-size: 13px; color: #333; spacing: 8px; }
-            QRadioButton::indicator { width: 18px; height: 18px; }
+            QRadioButton { font-size: 13px; color: #333; spacing: 10px; padding: 5px; }
+            QRadioButton::indicator {
+                width: 18px; height: 18px;
+                border: 2px solid #CCC;
+                border-radius: 11px;
+                background: white;
+            }
+            QRadioButton::indicator:checked {
+                background-color: #378ADD;
+                border: 4px solid white;
+            }
+            QRadioButton:checked {
+                color: #185FA5;
+                font-weight: bold;
+            }
             QCheckBox { font-size: 13px; color: #333; spacing: 8px; }
-            QCheckBox::indicator { width: 18px; height: 18px; }
+            QCheckBox::indicator {
+                width: 18px; height: 18px;
+                border: 2px solid #CCC;
+                border-radius: 4px;
+                background: white;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #378ADD;
+                border: 4px solid white;
+            }
             QSlider::groove:horizontal { height: 5px; background: #DDD; border-radius: 3px; }
             QSlider::handle:horizontal {
                 background: #1a5276; width: 18px; height: 18px;
@@ -207,7 +231,18 @@ class PassportPhotoApp(QMainWindow):
         # Main body: left panel + preview
         body = QHBoxLayout()
         body.setSpacing(16)
-        body.addLayout(self._build_left_panel(), 1)
+
+        # Left Panel with Scroll Area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet("background: transparent;")
+
+        container = QWidget()
+        container.setLayout(self._build_left_panel())
+        scroll.setWidget(container)
+
+        body.addWidget(scroll, 1)
         body.addLayout(self._build_preview_panel(), 2)
         root.addLayout(body, 1)
 
@@ -222,7 +257,7 @@ class PassportPhotoApp(QMainWindow):
 
     def _build_left_panel(self):
         layout = QVBoxLayout()
-        layout.setSpacing(12)
+        layout.setSpacing(18)
 
         # ── Upload ────────────────────────────────────────────────────────────
         upload_grp = QGroupBox("Step 1 — Load Photo")
@@ -240,8 +275,23 @@ class PassportPhotoApp(QMainWindow):
         ug_layout.addWidget(self.file_label)
         layout.addWidget(upload_grp)
 
+        # ── Photo Size ────────────────────────────────────────────────────────
+        size_grp = QGroupBox("Step 2 — Photo Size")
+        size_layout = QVBoxLayout(size_grp)
+        size_layout.setSpacing(6)
+        self.size_group = QButtonGroup()
+
+        self.size_passport = QRadioButton("📐  35 × 45 mm  (Standard Passport)")
+        self.size_passport.setChecked(True)
+        self.size_small = QRadioButton("📏  20 × 20 mm  (Small / Specialty)")
+        self.size_group.addButton(self.size_passport)
+        self.size_group.addButton(self.size_small)
+        size_layout.addWidget(self.size_passport)
+        size_layout.addWidget(self.size_small)
+        layout.addWidget(size_grp)
+
         # ── Background ────────────────────────────────────────────────────────
-        bg_grp = QGroupBox("Step 2 — Background Colour")
+        bg_grp = QGroupBox("Step 3 — Background Colour")
         bg_layout = QVBoxLayout(bg_grp)
         bg_layout.setSpacing(6)
         self.bg_group = QButtonGroup()
@@ -256,7 +306,7 @@ class PassportPhotoApp(QMainWindow):
         layout.addWidget(bg_grp)
 
         # ── Border ───────────────────────────────────────────────────────────
-        border_grp = QGroupBox("Step 3 — Border")
+        border_grp = QGroupBox("Step 4 — Border")
         br_layout = QVBoxLayout(border_grp)
         br_layout.setSpacing(6)
         self.border_none = QRadioButton("No border  (borderless)")
@@ -270,7 +320,7 @@ class PassportPhotoApp(QMainWindow):
         layout.addWidget(border_grp)
 
         # ── Enhancements ──────────────────────────────────────────────────────
-        enh_grp = QGroupBox("Step 4 — Enhancements")
+        enh_grp = QGroupBox("Step 5 — Enhancements")
         en_layout = QVBoxLayout(enh_grp)
         en_layout.setSpacing(10)
 
@@ -279,20 +329,28 @@ class PassportPhotoApp(QMainWindow):
         en_layout.addWidget(self.auto_enhance)
 
         def make_slider(label, min_val, max_val, default):
-            row = QHBoxLayout()
+            row_widget = QWidget()
+            row = QGridLayout(row_widget)
+            row.setContentsMargins(0, 0, 0, 0)
+
             lbl = QLabel(label)
-            lbl.setFixedWidth(90)
+            lbl.setMinimumWidth(80)
+
             s = QSlider(Qt.Orientation.Horizontal)
             s.setRange(min_val, max_val)
             s.setValue(default)
+
             val_lbl = QLabel(str(default))
-            val_lbl.setFixedWidth(30)
+            val_lbl.setFixedWidth(35)
+            val_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             val_lbl.setStyleSheet("color: #1a5276; font-weight: bold;")
             s.valueChanged.connect(lambda v, l=val_lbl: l.setText(str(v)))
-            row.addWidget(lbl)
-            row.addWidget(s)
-            row.addWidget(val_lbl)
-            en_layout.addLayout(row)
+
+            row.addWidget(lbl, 0, 0)
+            row.addWidget(s, 0, 1)
+            row.addWidget(val_lbl, 0, 2)
+
+            en_layout.addWidget(row_widget)
             return s
 
         self.brightness_slider  = make_slider("Brightness",  70, 130, 105)
@@ -386,7 +444,17 @@ class PassportPhotoApp(QMainWindow):
         self.print_sheet_btn.setEnabled(False)
 
     def _gather_settings(self):
+        size_mode = "passport" if self.size_passport.isChecked() else "small"
+        if size_mode == "passport":
+            w, h = 827, 1063
+        else:
+            # 20mm at 600dpi = 20/25.4 * 600 = 472.44 -> 472 px
+            w, h = 472, 472
+
         return {
+            "size_mode":  size_mode,
+            "target_w":   w,
+            "target_h":   h,
             "bg_color":   BG_WHITE if self.bg_white.isChecked() else BG_BLUE,
             "border":     self.border_thin.isChecked(),
             "auto_enhance": self.auto_enhance.isChecked(),
@@ -440,8 +508,10 @@ class PassportPhotoApp(QMainWindow):
             qpix.scaled(300, 360, Qt.AspectRatioMode.KeepAspectRatio,
                         Qt.TransformationMode.SmoothTransformation)
         )
+        settings = self._gather_settings()
+        size_str = "35×45 mm" if settings["size_mode"] == "passport" else "20×20 mm"
         self.result_info.setText(
-            f"35×45 mm  ·  {image.width}×{image.height} px  ·  600 DPI"
+            f"{size_str}  ·  {image.width}×{image.height} px  ·  600 DPI"
         )
         self.download_btn.setEnabled(True)
         self.print_sheet_btn.setEnabled(True)
@@ -472,7 +542,7 @@ class PassportPhotoApp(QMainWindow):
         sheet = self.processor.make_print_sheet(self.result_image)
         fmt = "JPEG" if path.lower().endswith(".jpg") else "PNG"
         sheet.convert("RGB").save(path, format=fmt, dpi=(600, 600), quality=95)
-        QMessageBox.information(self, "Saved", f"Print sheet (6 photos on A4) saved to:\n{path}")
+        QMessageBox.information(self, "Saved", f"Print sheet saved to:\n{path}")
 
 
 # ── Entry Point ───────────────────────────────────────────────────────────────
