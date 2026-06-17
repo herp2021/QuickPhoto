@@ -1,8 +1,8 @@
 @echo off
-title Passport Photo Studio — Setup
+title Passport Photo Studio Setup
 
 echo ============================================
-echo   Passport Photo Studio — First-Time Setup
+echo   Passport Photo Studio  First-Time Setup
 echo ============================================
 echo.
 

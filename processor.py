@@ -1,6 +1,12 @@
 """
 PassportProcessor — all image processing logic.
 Handles face detection, background removal, cropping, enhancement, and sheet layout.
+
+BUG FIXES (v2):
+- Remove background FIRST on full original image, THEN detect face and crop
+- Re-enabled alpha_matting with tuned parameters for clean hair/collar edges
+- Fixed print sheet to handle multiple rows correctly (3×2 for 6 photos, 3×3 for 9)
+- Fixed padding in detect_and_center_face to preserve RGBA transparency (not bake white)
 """
 
 import cv2
@@ -11,16 +17,13 @@ import os
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-# Face should occupy 70–80% of height, centered horizontally
 FACE_HEIGHT_RATIO  = 0.73   # target face height as fraction of photo height
 FACE_TOP_MARGIN    = 0.08   # gap from top of photo to top of head
 
-# Official Indian passport light blue background
-INDIA_BLUE = (165, 200, 230)   # soft sky blue (RGB)
-WHITE      = (255, 255, 255)
+INDIA_BLUE  = (165, 200, 230)
+WHITE       = (255, 255, 255)
 
-# Border: ~0.5 mm at 600 DPI = ~12 px
-BORDER_PX = 12
+BORDER_PX    = 12
 BORDER_COLOR = (0, 0, 0)
 
 
@@ -29,14 +32,13 @@ class PassportProcessor:
         self._init_face_detector()
         self._rembg_session = None   # lazy-load
 
-    # ── Face Detection (MediaPipe) ────────────────────────────────────────────
+    # ── Face Detection ────────────────────────────────────────────────────────
 
     def _init_face_detector(self):
-        """Initialize MediaPipe face detection. Falls back to OpenCV Haar cascade."""
         try:
             self.mp_face = mp.solutions.face_detection
             self.face_detector = self.mp_face.FaceDetection(
-                model_selection=1,      # full-range model
+                model_selection=1,
                 min_detection_confidence=0.5
             )
             self._use_mediapipe = True
@@ -47,10 +49,12 @@ class PassportProcessor:
 
     def detect_and_center_face(self, pil_img: Image.Image, target_w: int, target_h: int):
         """
-        Detects face bounding box, then returns a new image cropped and
-        padded so the face is properly positioned for the target dimensions.
+        Detects face, scales and crops so face is properly centred for passport spec.
+        IMPORTANT: pil_img should already have background removed (RGBA).
+        Padding uses TRANSPARENT fill (not white) so background colour is applied later.
         Returns (image, face_found: bool).
         """
+        # Work on RGB copy for detection; keep RGBA original for compositing
         rgb = np.array(pil_img.convert("RGB"))
         h, w = rgb.shape[:2]
         face_box = None
@@ -60,21 +64,21 @@ class PassportProcessor:
             if results.detections:
                 det = results.detections[0]
                 bb = det.location_data.relative_bounding_box
-                x = int(bb.xmin * w)
-                y = int(bb.ymin * h)
+                x  = int(bb.xmin * w)
+                y  = int(bb.ymin * h)
                 fw = int(bb.width * w)
                 fh = int(bb.height * h)
-                # Add 20% padding above to include full head/hair
-                y_adj = max(0, y - int(fh * 0.20))
-                fh_adj = fh + int(fh * 0.20)
+                # Add 25% above to include full head/hair
+                y_adj  = max(0, y - int(fh * 0.25))
+                fh_adj = fh + int(fh * 0.25)
                 face_box = (x, y_adj, fw, fh_adj)
         else:
             gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
             faces = self.haar_cascade.detectMultiScale(gray, 1.1, 5, minSize=(60, 60))
             if len(faces) > 0:
                 x, y, fw, fh = faces[0]
-                y_adj = max(0, y - int(fh * 0.20))
-                fh_adj = fh + int(fh * 0.20)
+                y_adj  = max(0, y - int(fh * 0.25))
+                fh_adj = fh + int(fh * 0.25)
                 face_box = (x, y_adj, fw, fh_adj)
 
         if face_box is None:
@@ -82,40 +86,35 @@ class PassportProcessor:
 
         fx, fy, fw, fh = face_box
 
-        # ── Compute target crop ───────────────────────────────────────────────
-        # Face height should be FACE_HEIGHT_RATIO of photo height
         target_face_h = target_h * FACE_HEIGHT_RATIO
         scale = target_face_h / fh if fh > 0 else 1.0
 
-        # Scale image so face height matches target
         new_w = int(w * scale)
         new_h = int(h * scale)
-        scaled = pil_img.resize((new_w, new_h), Image.LANCZOS)
 
-        # Face position in scaled image
+        # Scale the RGBA image (preserves transparency)
+        scaled = pil_img.convert("RGBA").resize((new_w, new_h), Image.LANCZOS)
+
         sfx = int(fx * scale)
         sfy = int(fy * scale)
         sfw = int(fw * scale)
         sfh = int(fh * scale)
 
-        # Desired top of photo: FACE_TOP_MARGIN above the top of the face
         top_margin_px = int(target_h * FACE_TOP_MARGIN)
         crop_y = sfy - top_margin_px
-
-        # Horizontal center
         face_cx = sfx + sfw // 2
-        crop_x = face_cx - target_w // 2
+        crop_x  = face_cx - target_w // 2
 
-        # Pad if needed
-        pad_left  = max(0, -crop_x)
-        pad_top   = max(0, -crop_y)
-        pad_right  = max(0, crop_x + target_w - new_w)
+        pad_left   = max(0, -crop_x)
+        pad_top    = max(0, -crop_y)
+        pad_right  = max(0, crop_x + target_w  - new_w)
         pad_bottom = max(0, crop_y + target_h - new_h)
 
         if any([pad_left, pad_top, pad_right, pad_bottom]):
             padded_w = new_w + pad_left + pad_right
             padded_h = new_h + pad_top + pad_bottom
-            padded = Image.new("RGBA", (padded_w, padded_h), (255, 255, 255, 0))
+            # ✅ FIX: use fully transparent fill so background colour applied later is clean
+            padded = Image.new("RGBA", (padded_w, padded_h), (0, 0, 0, 0))
             padded.paste(scaled, (pad_left, pad_top))
             scaled = padded
             crop_x += pad_left
@@ -124,57 +123,56 @@ class PassportProcessor:
         crop_x = max(0, crop_x)
         crop_y = max(0, crop_y)
 
-        cropped = scaled.crop((
-            crop_x,
-            crop_y,
-            crop_x + target_w,
-            crop_y + target_h
-        ))
+        cropped = scaled.crop((crop_x, crop_y, crop_x + target_w, crop_y + target_h))
 
-        # Ensure exact size
         if cropped.size != (target_w, target_h):
             cropped = cropped.resize((target_w, target_h), Image.LANCZOS)
 
         return cropped, True
 
-    # ── Background Removal (rembg) ────────────────────────────────────────────
+    # ── Background Removal ────────────────────────────────────────────────────
 
     def _get_rembg_session(self):
         if self._rembg_session is None:
             from rembg import new_session
+            # u2net_human_seg is the best model for portraits
             self._rembg_session = new_session("u2net_human_seg")
         return self._rembg_session
 
     def remove_background(self, pil_img: Image.Image) -> Image.Image:
-        """Remove background using rembg's u2net_human_seg model (offline)."""
+        """
+        Remove background from the FULL original image before any cropping.
+        ✅ FIX: alpha_matting re-enabled with tuned thresholds for clean hair/collar edges.
+        """
         try:
             from rembg import remove
             session = self._get_rembg_session()
-            # Disable alpha_matting to avoid blocky artifacts reported by user
-            result = remove(pil_img, session=session, alpha_matting=False)
+            result = remove(
+                pil_img,
+                session=session,
+                alpha_matting=True,
+                alpha_matting_foreground_threshold=230,
+                alpha_matting_background_threshold=20,
+                alpha_matting_erode_size=5,
+            )
             return result.convert("RGBA")
-        except Exception as e:
-            # Graceful fallback: rough green-screen-style removal not possible offline
-            # Return original with full alpha (no removal)
+        except Exception:
             return pil_img.convert("RGBA")
 
     # ── Background Application ────────────────────────────────────────────────
 
     def apply_background(self, pil_img: Image.Image, color: str) -> Image.Image:
-        """Composite RGBA image onto a solid background."""
         bg_color = WHITE if color == "white" else INDIA_BLUE
         bg = Image.new("RGBA", pil_img.size, bg_color + (255,))
-        # Paste subject (with alpha mask) onto background
         if pil_img.mode == "RGBA":
             bg.paste(pil_img, mask=pil_img.split()[3])
         else:
             bg.paste(pil_img)
         return bg.convert("RGBA")
 
-    # ── Crop to Passport Size ─────────────────────────────────────────────────
+    # ── Crop to Target Size ───────────────────────────────────────────────────
 
     def crop_to_passport(self, pil_img: Image.Image, target_w: int, target_h: int) -> Image.Image:
-        """Ensure image is exactly target_w × target_h."""
         if pil_img.size == (target_w, target_h):
             return pil_img
         return pil_img.resize((target_w, target_h), Image.LANCZOS)
@@ -182,7 +180,6 @@ class PassportProcessor:
     # ── Quality Enhancement ───────────────────────────────────────────────────
 
     def enhance_quality(self, pil_img: Image.Image, settings: dict) -> Image.Image:
-        """Apply brightness, contrast, and sharpness enhancements."""
         img = pil_img.convert("RGB")
 
         brightness = settings.get("brightness", 1.05)
@@ -190,17 +187,12 @@ class PassportProcessor:
         sharpness  = settings.get("sharpness",  0.60)
 
         if settings.get("auto_enhance", True):
-            # Auto white-balance: gently push image toward neutral
             img = self._auto_white_balance(img)
 
         img = ImageEnhance.Brightness(img).enhance(brightness)
         img = ImageEnhance.Contrast(img).enhance(contrast)
+        img = ImageEnhance.Sharpness(img).enhance(1.0 + sharpness * 1.5)
 
-        # Sharpness: blend between smooth (0) and sharp (2.0)
-        sharp_factor = 1.0 + sharpness * 1.5
-        img = ImageEnhance.Sharpness(img).enhance(sharp_factor)
-
-        # Gentle skin-smoothing (noise reduction)
         if settings.get("auto_enhance", True):
             cv_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
             cv_img = cv2.bilateralFilter(cv_img, d=5, sigmaColor=25, sigmaSpace=25)
@@ -209,64 +201,60 @@ class PassportProcessor:
         return img.convert("RGBA")
 
     def _auto_white_balance(self, img: Image.Image) -> Image.Image:
-        """Simple grey-world white balance."""
         cv_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2LAB).astype(np.float32)
         avg_a = np.mean(cv_img[:, :, 1])
         avg_b = np.mean(cv_img[:, :, 2])
-        cv_img[:, :, 1] = cv_img[:, :, 1] - (avg_a - 128) * 0.3
-        cv_img[:, :, 2] = cv_img[:, :, 2] - (avg_b - 128) * 0.3
+        cv_img[:, :, 1] -= (avg_a - 128) * 0.3
+        cv_img[:, :, 2] -= (avg_b - 128) * 0.3
         cv_img = np.clip(cv_img, 0, 255).astype(np.uint8)
         return Image.fromarray(cv2.cvtColor(cv_img, cv2.COLOR_LAB2RGB))
 
     # ── Border ────────────────────────────────────────────────────────────────
 
     def add_border(self, pil_img: Image.Image) -> Image.Image:
-        """Add a thin black border around the photo."""
         img = pil_img.convert("RGBA")
         draw = ImageDraw.Draw(img)
         w, h = img.size
-        draw.rectangle(
-            [0, 0, w - 1, h - 1],
-            outline=BORDER_COLOR + (255,),
-            width=BORDER_PX
-        )
+        draw.rectangle([0, 0, w - 1, h - 1], outline=BORDER_COLOR + (255,), width=BORDER_PX)
         return img
 
     # ── Print Sheet ───────────────────────────────────────────────────────────
 
-    def make_print_sheet(self, photo: Image.Image, cols=6, rows=1) -> Image.Image:
+    def make_print_sheet(self, photo: Image.Image, cols: int = 3, rows: int = 2) -> Image.Image:
         """
-        Create an A4 print sheet at 600 DPI with 6 photos arranged in a single row at the top.
+        Create an A4 print sheet at 600 DPI.
+        ✅ FIX: proper cols×rows grid (default 3×2 = 6 photos for passport size).
+        All photos are centred on the page with equal margins.
         A4 at 600 DPI = 4961 × 7016 px
         """
         A4_W = 4961
         A4_H = 7016
-        TOP_MARGIN = 300   # Gap from top of page
-        GAP_PX = 50        # ~2 mm gap between photos
+        GAP  = 80   # ~3.4 mm gap between photos
 
         pw, ph = photo.size
         photo_rgb = photo.convert("RGB")
 
-        # Ensure 6 photos fit horizontally by scaling down if necessary
-        # Max width available for 6 photos + 5 gaps
-        max_total_w = A4_W - 400 # 200px margin on each side
-        needed_w = (cols * pw) + ((cols - 1) * GAP_PX)
-
-        if needed_w > max_total_w:
-            scale = max_total_w / needed_w
+        # Scale down if photos don't fit
+        max_photo_w = (A4_W - 400 - GAP * (cols - 1)) // cols
+        max_photo_h = (A4_H - 400 - GAP * (rows - 1)) // rows
+        if pw > max_photo_w or ph > max_photo_h:
+            scale = min(max_photo_w / pw, max_photo_h / ph)
             pw = int(pw * scale)
             ph = int(ph * scale)
             photo_rgb = photo_rgb.resize((pw, ph), Image.LANCZOS)
-            needed_w = (cols * pw) + ((cols - 1) * GAP_PX)
+
+        total_w = cols * pw + (cols - 1) * GAP
+        total_h = rows * ph + (rows - 1) * GAP
+
+        start_x = (A4_W - total_w) // 2
+        start_y = (A4_H - total_h) // 2
 
         sheet = Image.new("RGB", (A4_W, A4_H), (255, 255, 255))
 
-        # Center the row of photos
-        start_x = (A4_W - needed_w) // 2
-
-        for col in range(cols):
-            x = start_x + col * (pw + GAP_PX)
-            y = TOP_MARGIN
-            sheet.paste(photo_rgb, (x, y))
+        for row in range(rows):
+            for col in range(cols):
+                x = start_x + col * (pw + GAP)
+                y = start_y + row * (ph + GAP)
+                sheet.paste(photo_rgb, (x, y))
 
         return sheet
