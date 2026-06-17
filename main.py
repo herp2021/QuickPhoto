@@ -107,17 +107,17 @@ class PassportPhotoApp(QMainWindow):
             QPushButton:pressed { background-color: #D0E8F8; }
             QPushButton:disabled { color: #888888; background-color: #F0F0F0; }
             QPushButton#primary {
-                background-color: #1a5276; color: #FFFFFF; border: none;
+                background-color: #1a5276; color: #222222; border: none;
                 font-size: 15px; font-weight: bold; padding: 12px 28px;
             }
-            QPushButton#primary:hover { background-color: #21618C; color: #FFFFFF; }
-            QPushButton#primary:disabled { background-color: #BDC3C7; color: #ECF0F1; }
+            QPushButton#primary:hover { background-color: #21618C; color: #222222; }
+            QPushButton#primary:disabled { background-color: #BDC3C7; color: #555555; }
             QPushButton#download {
-                background-color: #1E8449; color: #FFFFFF; border: none;
+                background-color: #1E8449; color: #222222; border: none;
                 font-size: 14px; font-weight: bold;
             }
-            QPushButton#download:hover { background-color: #27AE60; color: #FFFFFF; }
-            QPushButton#download:disabled { background-color: #BDC3C7; color: #ECF0F1; }
+            QPushButton#download:hover { background-color: #27AE60; color: #222222; }
+            QPushButton#download:disabled { background-color: #BDC3C7; color: #555555; }
             QLabel { color: #333; font-size: 13px; }
             QLabel#title { font-size: 22px; font-weight: bold; color: #1a5276; }
             QLabel#subtitle { font-size: 13px; color: #666; }
