@@ -598,12 +598,20 @@ class PassportPhotoApp(QMainWindow):
         self.file_label.setText(os.path.basename(path))
         self.file_label.setStyleSheet("color:#1A5276; font-size:11px; font-weight:bold;")
         self.process_btn.setEnabled(True)
-        self.result_label.setText("Press Generate")
         self.result_image = None
         self.bg_removed_image = None
         self.download_btn.setEnabled(False)
         self.print_sheet_btn.setEnabled(False)
         self.apply_btn.setEnabled(False)
+
+        preview = QPixmap(path)
+        if not preview.isNull():
+            self.result_label.setPixmap(
+                preview.scaled(220, 300, Qt.AspectRatioMode.KeepAspectRatio,
+                               Qt.TransformationMode.SmoothTransformation))
+            self.result_info.setText("Original — click Generate to process")
+        else:
+            self.result_label.setText("Press Generate")
 
     def _gather_settings(self):
         if self.size_passport.isChecked():
