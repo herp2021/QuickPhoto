@@ -1,11 +1,11 @@
 # QuickPhoto
 Creating Passport Photo
 
-================================================================
+===============================================================
   PASSPORT PHOTO STUDIO — INDIA
   Offline Desktop Application
   Indian Passport Standard (35×45 mm, 600 DPI, ICAO compliant)
-================================================================
+===============================================================
 
 WHAT THIS APP DOES
 ------------------
@@ -17,6 +17,9 @@ WHAT THIS APP DOES
 6. Applies studio-quality enhancements (brightness, contrast, sharpness)
 7. Adds an optional thin border
 8. Exports a single photo OR a print sheet with 6 photos on A4
+9. Supports multiple sizes: 35×45 mm, 20×20 mm, 20×25 mm
+10. Manual reposition with drag-and-zoom after processing
+11. Instant preview of selected image before generation
 
 
 REQUIREMENTS
@@ -29,7 +32,7 @@ REQUIREMENTS
 
 
 HOW TO RUN — WINDOWS
----------------------
+--------------------
 1. Install Python from https://www.python.org/downloads/
    *** Tick "Add Python to PATH" during installation ***
 2. Double-click:  setup_and_run.bat
@@ -47,15 +50,19 @@ HOW TO RUN — MAC / LINUX
 HOW TO USE THE APP
 ------------------
 Step 1 — Click "Open Photo" and choose your photo
-Step 2 — Choose background: White or Light Blue
-Step 3 — Choose: No border or Thin border
-Step 4 — Adjust brightness/contrast if needed (or leave on Auto)
-Step 5 — Click "Generate Passport Photo"
-Step 6 — Click "Save Photo" or "Save Print Sheet"
+        (preview appears on the right immediately)
+Step 2 — Choose photo size: 35×45 mm, 20×20 mm, or 20×25 mm
+Step 3 — Choose background: White or Light Blue
+Step 4 — Choose border: Borderless or Thin border (0.5 mm)
+Step 5 — Adjust brightness / contrast / sharpness, or leave Auto on
+Step 6 — Click "Generate Passport Photo"
+Step 7 — Drag inside the frame to fine-tune position, zoom if needed
+Step 8 — Click "Apply Position & Enhance"
+Step 9 — Save the single photo or the print sheet
 
 
 PHOTO TIPS FOR BEST RESULTS
------------------------------
+----------------------------
 - Use a photo taken indoors or in good natural light
 - Face should be clearly visible, looking straight at the camera
 - Neutral expression, both eyes open
@@ -66,13 +73,14 @@ PHOTO TIPS FOR BEST RESULTS
 OUTPUT SPECIFICATIONS
 ---------------------
 Single photo:
-  Size:     35 mm × 45 mm
+  Size:     35 mm × 45 mm  |  20 mm × 20 mm  |  20 mm × 25 mm
   DPI:      600
-  Pixels:   827 × 1063
+  Pixels:   827 × 1063  |  472 × 472  |  472 × 591
   Format:   JPG (quality 95) or PNG
 
 Print sheet (A4):
-  Layout:   3 columns × 2 rows = 6 photos
+  Layout:   6 photos in one row  (35×45 mm)
+            9 photos in one row  (20×20 mm or 20×25 mm)
   DPI:      600
   Pixels:   4961 × 7016 (full A4)
   Format:   JPG or PNG
@@ -104,4 +112,4 @@ MediaPipe    Face detection (Google)
 rembg        AI background removal (offline u2net model)
 Pillow       Image export
 NumPy        Pixel mathematics
-================================================================
+===============================================================
